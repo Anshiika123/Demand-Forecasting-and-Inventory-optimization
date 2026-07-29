@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  BarChart, Bar, ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer
 } from 'recharts'
 import './App.css'
@@ -11,6 +11,7 @@ const API_BASE = 'http://127.0.0.1:8000'
 function App() {
   const [categories, setCategories] = useState([])
   const [selectedCategory, setSelectedCategory] = useState('')
+  const [horizonDays, setHorizonDays] = useState(14)
   const [forecast, setForecast] = useState(null)
   const [inventory, setInventory] = useState(null)
   const [dashboardData, setDashboardData] = useState([])
@@ -44,7 +45,9 @@ function App() {
     async function loadCategoryDetails() {
       try {
         const [forecastRes, inventoryRes] = await Promise.all([
-          axios.get(`${API_BASE}/forecast/${encodeURIComponent(selectedCategory)}`),
+          axios.get(`${API_BASE}/forecast/${encodeURIComponent(selectedCategory)}`, {
+            params: { days: horizonDays }
+          }),
           axios.get(`${API_BASE}/inventory/${encodeURIComponent(selectedCategory)}`)
         ])
         setForecast(forecastRes.data)
@@ -54,7 +57,7 @@ function App() {
       }
     }
     loadCategoryDetails()
-  }, [selectedCategory])
+  }, [selectedCategory, horizonDays])
 
   if (loading) return <div className="status-message">Loading dashboard...</div>
   if (error) return <div className="status-message error">{error}</div>
@@ -77,6 +80,16 @@ function App() {
             <option key={item.category} value={item.category}>
               {item.category}
             </option>
+          ))}
+        </select>
+        <label htmlFor="horizon-select"> Forecast horizon: </label>
+        <select
+          id="horizon-select"
+          value={horizonDays}
+          onChange={(e) => setHorizonDays(Number(e.target.value))}
+        >
+          {[7, 14, 30].map((d) => (
+            <option key={d} value={d}>{d} days</option>
           ))}
         </select>
       </div>
@@ -103,6 +116,35 @@ function App() {
             <p className="metric-value">{inventory.economic_order_quantity}</p>
             <span className="metric-sub">optimal order size</span>
           </div>
+        </div>
+      )}
+
+      {forecast && forecast.horizon && (
+        <div className="chart-section">
+          <h2>{horizonDays}-Day Forecast — {forecast.category}</h2>
+          <ResponsiveContainer width="100%" height={380}>
+            <ComposedChart
+              data={forecast.horizon.map((h) => ({ ...h, band: [h.yhat_lower, h.yhat_upper] }))}
+              margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Area
+                dataKey="band"
+                stroke="none"
+                fill="#38bdf8"
+                fillOpacity={0.15}
+                name="Prophet confidence interval"
+                isAnimationActive={false}
+              />
+              <Line type="monotone" dataKey="blended_pred" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 3 }} name={`Blended (xgb ${Math.round(forecast.xgb_weight * 100)}% / prophet ${Math.round((1 - forecast.xgb_weight) * 100)}%)`} />
+              <Line type="monotone" dataKey="xgb_pred" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="XGBoost" />
+              <Line type="monotone" dataKey="prophet_pred" stroke="#22c55e" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Prophet" />
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
       )}
 
